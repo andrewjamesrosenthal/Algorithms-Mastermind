@@ -1,0 +1,371 @@
+// mastermind_single.cpp
+// Self-contained Mastermind game implementation.
+// - No std::vector
+// - No custom namespaces
+// - Classes include requirement-style documentation in their declarations.
+
+#include <iostream>      // std::cout, std::cin, std::ostream
+#include <stdexcept>     // std::invalid_argument, std::runtime_error
+#include <random>        // std::random_device, std::mt19937, std::uniform_int_distribution
+#include <algorithm>     // std::min
+
+using std::cin;
+using std::cout;
+using std::cerr;
+using std::endl;
+using std::invalid_argument;
+using std::ostream;
+using std::runtime_error;
+
+/* ============================================================
+ * class Code
+ * ------------------------------------------------------------
+ * Stores a Mastermind code as a raw dynamic array (int*), and
+ * computes feedback (correct/incorrect) against a guess.
+ *
+ * Requirements:
+ *  - Digits are integers in the closed range [0, m()-1].
+ *  - Length is exactly n().
+ *  - Owns its memory (Rule of Three implemented).
+ *
+ * Printing:
+ *  - operator<< writes digits space-separated with NO trailing
+ *    space and NO newline. Example: "1 3 3 7 9"
+ * ============================================================ */
+class Code {
+public:
+    /**
+     * Construct an empty (zero-initialized) code of length n with digit range m.
+     * @param n Code length (must be > 0).
+     * @param m Digit range size; valid digits are 0..m-1 (must be > 1).
+     * @throws std::invalid_argument if n <= 0 or m <= 1.
+     * Post:
+     *  - n() == n, m() == m.
+     *  - digits() points to an array of length n(), initialized to 0s.
+     *  - Does NOT randomize.
+     */
+    Code(int n, int m)
+        : n_(n), m_(m), digits_(nullptr) {
+        validateNM();
+        digits_ = new int[n_];
+        for (int i = 0; i < n_; ++i) digits_[i] = 0;
+    }
+
+    /** Deep-copy constructor (Rule of Three). */
+    Code(const Code& other)
+        : n_(other.n_), m_(other.m_), digits_(nullptr) {
+        digits_ = new int[n_];
+        for (int i = 0; i < n_; ++i) digits_[i] = other.digits_[i];
+    }
+
+    /** Deep-copy assignment (Rule of Three). */
+    Code& operator=(const Code& other) {
+        if (this != &other) {
+            // Allocate first to maintain strong-ish exception safety
+            int* newDigits = new int[other.n_];
+            for (int i = 0; i < other.n_; ++i) newDigits[i] = other.digits_[i];
+            delete[] digits_;
+            digits_ = newDigits;
+            n_ = other.n_;
+            m_ = other.m_;
+        }
+        return *this;
+    }
+
+    /** Destructor (Rule of Three). */
+    ~Code() {
+        delete[] digits_;
+        digits_ = nullptr;
+        n_ = 0;
+        m_ = 0;
+    }
+
+    /**
+     * Fill digits with uniformly random values in [0, m()-1].
+     * Post: For all i in [0, n()-1], 0 <= digits()[i] < m().
+     */
+    void randomize() {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<int> dist(0, m_ - 1);
+        for (int i = 0; i < n_; ++i) digits_[i] = dist(gen);
+    }
+
+    /**
+     * Replace digits from an external array.
+     * @param values Pointer to an array of length len.
+     * @param len Must equal n().
+     * @throws std::invalid_argument if len != n() or any values[i] is not in [0, m()-1].
+     * Post: digits() becomes a copy of values.
+     */
+    void setDigits(const int* values, int len) {
+        if (len != n_) throw invalid_argument("setDigits: length mismatch");
+        for (int i = 0; i < n_; ++i) {
+            int v = values[i];
+            if (v < 0 || v >= m_) throw invalid_argument("setDigits: digit out of range");
+        }
+        for (int i = 0; i < n_; ++i) digits_[i] = values[i];
+    }
+
+    /**
+     * Count exact matches (right digit, right position).
+     * @param guess A Code built with the SAME (n,m) configuration.
+     * @return Number of positions i where digits()[i] == guess.digits()[i].
+     * @throws std::invalid_argument if guess.n() != n() or guess.m() != m().
+     */
+    int checkCorrect(const Code& guess) const {
+        requireSameConfig(guess);
+        int cnt = 0;
+        for (int i = 0; i < n_; ++i) if (digits_[i] == guess.digits_[i]) ++cnt;
+        return cnt;
+    }
+
+    /**
+     * Count value-only matches (right digit, wrong position), without double-counting.
+     * Algorithm:
+     *  - Ignore exact matches first.
+     *  - Among remaining positions, for each digit d in [0, m()-1],
+     *    add min(freq_secret[d], freq_guess[d]) to the total.
+     * @param guess A Code built with the SAME (n,m) configuration.
+     * @return Number of right digits in wrong positions (no double-counting).
+     * @throws std::invalid_argument if guess.n() != n() or guess.m() != m().
+     */
+    int checkIncorrect(const Code& guess) const {
+        requireSameConfig(guess);
+
+        // Frequency arrays on the heap (no std::vector)
+        int* codeFreq  = new int[m_];
+        int* guessFreq = new int[m_];
+        for (int d = 0; d < m_; ++d) { codeFreq[d] = 0; guessFreq[d] = 0; }
+
+        for (int i = 0; i < n_; ++i) {
+            if (digits_[i] != guess.digits_[i]) {
+                ++codeFreq[digits_[i]];
+                ++guessFreq[guess.digits_[i]];
+            }
+        }
+
+        int cnt = 0;
+        for (int d = 0; d < m_; ++d) cnt += std::min(codeFreq[d], guessFreq[d]);
+
+        delete[] codeFreq;
+        delete[] guessFreq;
+        return cnt;
+    }
+
+    /** @return The code length. */
+    int n() const { return n_; }
+
+    /** @return The digit range size. Valid digits are 0..m()-1. */
+    int m() const { return m_; }
+
+    /**
+     * @return Pointer to the internal digits array (length n()).
+     * WARNING: Read-only intent — do not modify through this pointer.
+     */
+    const int* digits() const { return digits_; }
+
+    /** Stream the code as space-separated digits, NO trailing space, NO newline. */
+    friend ostream& operator<<(ostream& os, const Code& c) {
+        for (int i = 0; i < c.n_; ++i) {
+            if (i) os << ' ';
+            os << c.digits_[i];
+        }
+        return os;
+    }
+
+private:
+    int  n_{0};
+    int  m_{0};
+    int* digits_{nullptr}; // length == n_
+
+    /** Validate (n_, m_) invariants. */
+    void validateNM() const {
+        if (n_ <= 0 || m_ <= 1) throw invalid_argument("Code: n must be > 0 and m must be > 1");
+    }
+
+    /** Enforce that both codes share the same (n,m). */
+    void requireSameConfig(const Code& other) const {
+        if (n_ != other.n_ || m_ != other.m_) throw invalid_argument("Code config mismatch");
+    }
+};
+
+
+/* ============================================================
+ * class Response
+ * ------------------------------------------------------------
+ * Holds the feedback pair (correct, incorrect) for a guess.
+ *
+ * Definitions:
+ *  - correct   := # of right digits in the right position.
+ *  - incorrect := # of right digits in the wrong position.
+ *
+ * Printing:
+ *  - operator<< writes exactly "(correct, incorrect)" with NO newline.
+ * ============================================================ */
+class Response {
+public:
+    /** Construct a response. */
+    Response(int correct = 0, int incorrect = 0)
+        : correct_(correct), incorrect_(incorrect) {}
+
+    /** Setters / getters */
+    void setCorrect(int c)   { correct_ = c; }
+    void setIncorrect(int i) { incorrect_ = i; }
+    int  getCorrect()   const { return correct_; }
+    int  getIncorrect() const { return incorrect_; }
+
+    /** Equality on both fields. */
+    friend bool operator==(const Response& a, const Response& b) {
+        return a.correct_ == b.correct_ && a.incorrect_ == b.incorrect_;
+    }
+
+    /** Print as "(correct, incorrect)" (NO newline). */
+    friend ostream& operator<<(ostream& os, const Response& r) {
+        os << '(' << r.getCorrect() << ", " << r.getIncorrect() << ')';
+        return os;
+    }
+
+private:
+    int correct_{0};
+    int incorrect_{0};
+};
+
+
+/* ============================================================
+ * class Mastermind
+ * ------------------------------------------------------------
+ * Runs the Mastermind game loop and ties I/O with Code/Response.
+ *
+ * Required flow (playGame):
+ *  1) initSecret()  -> secret_.randomize()
+ *  2) printSecret() -> prints "Secret code: " << secret_ << '\n'   (grading helper)
+ *  3) Up to 10 guesses:
+ *       - humanGuess(): read exactly n_ integers (0..m_-1), space-separated
+ *                       build Code(n_, m_), setDigits(...), return it
+ *                       (throw or reprompt on bad input — here we throw)
+ *       - getResponse(): build Response using Code::checkCorrect/Incorrect (do NOT reimplement)
+ *       - print "Response: " << response << '\n'
+ *       - if isSolved(response) -> print win message and end
+ *  4) If unsolved after 10, print loss message and reveal:
+ *       "The secret was: " << secret_ << '\n'
+ * ============================================================ */
+class Mastermind {
+public:
+    /** Construct with explicit parameters. */
+    Mastermind(int n, int m)
+        : n_(n), m_(m), secret_(n, m) {}
+
+    /** Default: n_ = 5, m_ = 10, secret_ = Code(5, 10). */
+    Mastermind()
+        : Mastermind(5, 10) {}
+
+    /** Initialize the secret code randomly. */
+    void initSecret() {
+        secret_.randomize();
+    }
+
+    /** Print the secret for grading. */
+    void printSecret() const {
+        cout << "Secret code: " << secret_ << '\n';
+    }
+
+    /**
+     * Read one guess from std::cin and return it as a Code.
+     * Input contract:
+     *  - Reads exactly n_ integers (space-separated), each in [0, m_-1].
+     *  - Builds a Code(n_, m_) and calls setDigits(...) to validate.
+     *  - On invalid input: throws (runtime_error / invalid_argument).
+     */
+    Code humanGuess() const {
+        cout << "Enter your guess of " << n_
+             << " digits (each 0.." << (m_ - 1) << "), separated by spaces:\n";
+
+        int* buf = new int[n_];
+        for (int i = 0; i < n_; ++i) {
+            if (!(cin >> buf[i])) {
+                delete[] buf;
+                throw runtime_error("Input error while reading guess.");
+            }
+        }
+
+        Code g(n_, m_);
+        try {
+            g.setDigits(buf, n_);
+        } catch (...) {
+            delete[] buf;
+            throw; // rethrow validation error
+        }
+
+        delete[] buf;
+        return g;
+    }
+
+    /**
+     * Build a Response by delegating to Code methods.
+     * @return Response where:
+     *         correct   = secret_.checkCorrect(guess)
+     *         incorrect = secret_.checkIncorrect(guess)
+     */
+    Response getResponse(const Code& guess) const {
+        int c = secret_.checkCorrect(guess);
+        int i = secret_.checkIncorrect(guess);
+        return Response(c, i);
+    }
+
+    /** Determine if the puzzle is solved. */
+    bool isSolved(const Response& r) const {
+        return r.getCorrect() == n_;
+    }
+
+    /** Run the full game loop (≤ 10 guesses), printing responses and outcome. */
+    void playGame() {
+        initSecret();
+        // Requirement: print secret to help grading
+        printSecret();
+
+        const int MAX_GUESSES = 10;
+        for (int turn = 1; turn <= MAX_GUESSES; ++turn) {
+            cout << "\nGuess " << turn << " of " << MAX_GUESSES << ":\n";
+            Code guess = humanGuess();
+            Response resp = getResponse(guess);
+            cout << "Response: " << resp << "  [format: (right-place, right-digit-wrong-place)]\n";
+            if (isSolved(resp)) {
+                cout << "Codebreaker wins! You cracked it in " << turn << " guess(es).\n";
+                return;
+            }
+        }
+        cout << "\nCodemaker wins. Out of guesses.\n";
+        cout << "The secret was: " << secret_ << '\n';
+    }
+
+private:
+    int  n_{5};
+    int  m_{10};
+    Code secret_{5, 10};
+};
+
+
+/* ============================================================
+ * main
+ * ============================================================ */
+int main() {
+    std::ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    try {
+        int n, m;
+        cout << "Enter code length n and range m (digits 0..m-1): ";
+        if (!(cin >> n >> m)) {
+            cerr << "Failed to read n and m.\n";
+            return 1;
+        }
+
+        Mastermind game(n, m);
+        game.playGame();
+    } catch (const std::exception& e) {
+        cerr << "Error: " << e.what() << '\n';
+        return 1;
+    }
+    return 0;
+}
