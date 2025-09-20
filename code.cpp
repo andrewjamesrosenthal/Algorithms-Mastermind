@@ -17,7 +17,31 @@ public:
     void printCode() const;
 
     // Compare functions
-    int checkCorrect(const Code &guess) const;   // right digit, right spot
+    int checkCorrect(const Code &guess) const
+    { // right digit, right spot
+        if (n != guess.n)
+        {
+            throw invalid_argument("checkCorrect: n (length) mismatch");
+        }
+        if (m != guess.m)
+        {
+            throw invalid_argument("checkCorrect: m (range) mismatch");
+        }
+        if (digits.size() != guess.digits.size())
+        {
+            throw invalid_argument("checkCorrect: digits size mismatch");
+        }
+        int count = 0;
+        for (int i = 0; i < n; ++i)
+        {
+            if (digits[i] == guess.digits[i])
+            {
+                ++count;
+            }
+        }
+        return count;
+    }
+
     int checkIncorrect(const Code &guess) const; // right digit, wrong spot
 
 private:
