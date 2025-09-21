@@ -17,7 +17,17 @@ public:
     void printCode() const;
 
     // Compare functions
-    int checkCorrect(const Code &guess) const
+    int checkCorrect(const Code &guess) const;
+    int checkIncorrect(const Code &guess) const;
+    
+                    
+
+private:
+    int n;              // code length
+    int m;              // digit range [0, m-1]
+    vector<int> digits; // actual code digits
+};
+int Code::int checkCorrect(const Code &guess) const
     { // right digit, right spot
         if (n != guess.n)
         {
@@ -42,14 +52,31 @@ public:
         return count;
     }
 
-    int checkIncorrect(const Code &guess) const; // right digit, wrong spot
-
-private:
-    int n;              // code length
-    int m;              // digit range [0, m-1]
-    vector<int> digits; // actual code digits
-};
-
+int Code::checkIncorrect(const Code& guess) const{
+    vector<bool> secretUsed(n, false);
+    vector<bool> guessUsed(n, false);
+    
+    int count = 0;
+    for (int i = 0; i < n; ++i) {
+        if (this->digits[i] == guess.digits[i]) {
+            secretUsed[i] = true;
+            guessUsed[i] = true;
+        }
+    }
+	
+    for (int i = 0; i < n; ++i) {
+        if (!guessUsed[i]) { 
+            for (int j = 0; j < n; ++j) {
+                if (!secretUsed[j] && guess.digits[i] == this->digits[j]) {
+                    count++;
+                    secretUsed[j] = true; 
+                    guessUsed[i] = true; 
+                    break;
+                }
+            }
+        }
+    }
+	return count;
 int main()
 {
     srand(time(0)); // seed RNG
