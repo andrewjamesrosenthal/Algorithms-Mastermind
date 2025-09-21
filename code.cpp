@@ -1,7 +1,7 @@
 #include <iostream>
 #include <vector>
-#include <cstdlib> // for rand(), srand()
-#include <ctime>   // for time()
+#include <cstdlib>
+#include <ctime>
 using namespace std;
 
 class Code
@@ -94,14 +94,12 @@ int main()
         {2, 1, 2, 2, 2},
         {1, 3, 3, 4, 5}};
 
-    for (auto g : testGuesses)
+    for (vector<int> guess : testGuesses)
     {
         Code guess(n, m);
-        // Manually set guess digits (you’ll implement a setter or modify constructor)
-        // guess.setDigits(g);
 
         cout << "Guess: ";
-        for (int d : g)
+        for (int d : guess)
             cout << d << " ";
         cout << endl;
 
